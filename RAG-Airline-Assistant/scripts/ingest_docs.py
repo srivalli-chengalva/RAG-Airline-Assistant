@@ -15,10 +15,20 @@ from sentence_transformers import SentenceTransformer
 def chunk_text(text: str, max_chars: int = 900, overlap: int = 150) -> List[str]:
     """
     SECTION-aware chunking:
+    - Strips front-matter header block (SOURCE / URL / CAPTURED_ON lines)
     - Keeps SECTION blocks together when possible.
     - Falls back to sentence-ish splitting for long sections.
     """
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    # FIXED: Strip front-matter before chunking (same as backend)
+    lines = text.splitlines()
+    content_start = 0
+    for i, line in enumerate(lines):
+        if line.strip() == "" or line.strip().startswith("SECTION:"):
+            content_start = i
+            break
+    text = "\n".join(lines[content_start:]).strip()
 
     # Split into sections by "SECTION:" markers if present
     # Otherwise treat whole document as one section
@@ -129,6 +139,12 @@ def ingest_policies(
         settings=Settings(anonymized_telemetry=False),
     )
 
+    # FIXED: Delete and recreate collection for clean re-ingest
+    try:
+        client.delete_collection(collection_name)
+    except Exception:
+        pass
+
     collection = client.get_or_create_collection(
         name=collection_name,
         metadata={"hnsw:space": "cosine"},
@@ -139,8 +155,8 @@ def ingest_policies(
     files_ingested = 0
     chunks_ingested = 0
 
-    # Recursively read .txt files
-    for file_path in policies_root.rglob("*.txt"):
+    # Recursively read .txt files (sorted for consistent order)
+    for file_path in sorted(policies_root.rglob("*.txt")):
         raw = file_path.read_text(encoding="utf-8", errors="ignore").strip()
         if not raw:
             continue
@@ -151,13 +167,17 @@ def ingest_policies(
         # Merge metadata (front-matter overrides path inference)
         do_not_cite = normalize_bool(front.get("do_not_cite", "")) or bool(path_md.get("do_not_cite", False))
 
+        # FIXED: Normalize airline to lowercase for case-insensitive filtering
+        airline_raw = front.get("airline") or str(path_md.get("airline") or "")
+        airline_normalized = airline_raw.strip().lower()
+
         metadata_base = {
             "source_file": str(file_path).replace("\\", "/"),
             "source": front.get("source") or "",
             "url": front.get("url") or "",
             "captured_on": front.get("captured_on") or "",
             "authority": front.get("authority") or str(path_md.get("authority") or ""),
-            "airline": front.get("airline") or str(path_md.get("airline") or ""),
+            "airline": airline_normalized,  # FIXED: was not normalized
             "domain": front.get("domain") or str(path_md.get("domain") or ""),
             "do_not_cite": do_not_cite,
         }

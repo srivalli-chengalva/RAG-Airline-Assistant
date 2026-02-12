@@ -11,7 +11,7 @@ import os
 import re
 import uuid
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
@@ -180,13 +180,18 @@ def ingest_policies(
             path_md.get("do_not_cite", False)
         )
 
+        # FIXED: Normalize airline to lowercase for consistent filtering
+        # This ensures "Delta Airlines" from user matches "delta airlines" in DB
+        airline_raw = front.get("airline") or str(path_md.get("airline") or "")
+        airline_normalized = airline_raw.strip().lower()
+
         metadata_base = {
             "source_file": str(file_path).replace("\\", "/"),
             "source": front.get("source") or "",
             "url": front.get("url") or "",
             "captured_on": front.get("captured_on") or "",
             "authority": front.get("authority") or str(path_md.get("authority") or ""),
-            "airline": front.get("airline") or str(path_md.get("airline") or ""),
+            "airline": airline_normalized,  # FIXED: was inline .lower() that wasn't clear
             "domain": front.get("domain") or str(path_md.get("domain") or ""),
             "do_not_cite": do_not_cite,
         }

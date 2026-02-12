@@ -74,7 +74,7 @@ class Retriever:
     ) -> List[Dict[str, Any]]:
         """
         Embed query and fetch top_k nearest chunks from ChromaDB.
-        Optionally filter by airline name (case-insensitive substring match).
+        Optionally filter by airline name (case-insensitive match).
         """
         k = top_k or settings.retrieval_top_k
 
@@ -85,14 +85,16 @@ class Retriever:
         ).tolist()[0]
 
         # Build optional where clause for airline filter
+        # FIXED: Normalize to lowercase for case-insensitive matching
         where = None
         if airline_filter:
-            where = {"airline": {"$eq": airline_filter}}
+            airline_normalized = airline_filter.strip().lower()
+            where = {"airline": {"$eq": airline_normalized}}
 
         res = self.collection.query(
             query_embeddings=[q_emb],
             n_results=k,
-            include=["documents", "metadatas", "distances"], #ids returned automatically
+            include=["documents", "metadatas", "distances"],  # ids returned automatically
             where=where,
         )
 
@@ -128,7 +130,8 @@ class Retriever:
         if not candidates:
             return []
 
-        pairs = [(query, c["doc"]) for c in candidates]
+        # FIXED: Increased from 350 to 500 chars for better reranking context
+        pairs = [(query, c["doc"][:500]) for c in candidates]
         scores = self.reranker.predict(pairs).tolist()
 
         for c, s in zip(candidates, scores):
@@ -159,3 +162,8 @@ class Retriever:
         """
         candidates = self.retrieve(query, airline_filter=airline_filter)
         return self.rerank(query, candidates)
+
+
+# REMOVED: Global variable instantiation (was causing confusion)
+# retriever = Retriever()
+# The retriever is instantiated in main.py where it's actually used
