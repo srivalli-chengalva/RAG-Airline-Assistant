@@ -1,5 +1,46 @@
+# ============================================================
+# Airline Dispute RAG Assistant — .gitignore
+# ============================================================
+
+# Virtual environment
 .venv/
-__pycache__/
-*.pyc
+venv/
+env/
+
+# Vector store — rebuild locally with: python scripts/ingest_docs.py
 vector_store/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# HuggingFace model cache (large, don't commit)
+.cache/
+
+# IDE files
+.vscode/
+.idea/
+*.code-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/
+
+# Environment variables / secrets
 .env
+*.env
+
+# Logs
+*.log
+logs/
+
+# Pytest
+.pytest_cache/
+htmlcov/
+.coverage
