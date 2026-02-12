@@ -1,0 +1,20 @@
+SOURCE: Delta Air Lines
+URL: https://www.delta.com/us/en/change-cancel/cancel-flight
+CAPTURED_ON: 2026-02-12
+AUTHORITY: AIRLINE
+DOMAIN: REFUND
+
+SECTION: Cancellation Eligibility
+Delta allows passengers to cancel flights and request refunds or eCredits depending on ticket type and fare rules. Fully refundable tickets or Extra tickets cancel before departure will receive full refund to original payment. :contentReference[oaicite:7]{index=7}
+
+SECTION: Non-Refundable Tickets
+Non-refundable tickets (e.g., Basic, Classic) typically result in eCredits minus cancellation fees if canceled before departure. Remaining value is issued as eCredit valid for rebooking. :contentReference[oaicite:8]{index=8}
+
+SECTION: Significant Delay or Schedule Change
+If a flight is canceled or significantly changed (e.g., timing or routing), Delta automatically attempts rebooking. If the passenger is not satisfied, they may cancel and receive a refund of the unused portion of the ticket and associated fees (checked bag, seat upgrades). :contentReference[oaicite:9]{index=9}
+
+SECTION: Automatic Refund Processing
+If rebooking fails or the passenger takes no action within a defined period after disruption, a refund will be issued automatically to the original form of payment when eligible. :contentReference[oaicite:10]{index=10}
+
+SECTION: 24-Hour Risk-Free Cancellation
+Delta typically offers a 24-hour risk-free cancellation period after purchase for direct bookings, allowing a full refund if canceled within this window. :contentReference[oaicite:11]{index=11}

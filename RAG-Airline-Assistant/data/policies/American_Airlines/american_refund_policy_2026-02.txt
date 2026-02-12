@@ -1,0 +1,17 @@
+SOURCE: American Airlines
+URL: https://www.aa.com/i18n/customer-service/contact-american/receipts-and-refunds.jsp
+CAPTURED_ON: 2026-02-12
+AUTHORITY: AIRLINE
+DOMAIN: REFUND
+
+SECTION: Refund Requests
+Passengers who purchased tickets or ancillaries (e.g., baggage fees, seat fees, Wi-Fi) may request refunds or check refund status through American’s customer service. Refunds are issued according to fare rules and eligibility. :contentReference[oaicite:17]{index=17}
+
+SECTION: Ancillary Refunds
+American handles refunds for inflight purchase fees, Wi-Fi, and other services per internal procedures; passengers may contact customer service or use the online refund status tool. :contentReference[oaicite:18]{index=18}
+
+SECTION: Ticket Type Considerations
+Refund eligibility depends on ticket type (refundable vs non-refundable), timing of request, third-party purchase, and airline’s own fare conditions. :contentReference[oaicite:19]{index=19}
+
+SECTION: Third-Party Purchases
+If bought through a travel agent or third-party site, passengers may need to contact the seller directly for refund assistance. :contentReference[oaicite:20]{index=20}

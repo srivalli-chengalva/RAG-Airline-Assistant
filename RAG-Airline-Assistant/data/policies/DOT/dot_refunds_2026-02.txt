@@ -1,0 +1,65 @@
+SOURCE: U.S. Department of Transportation
+URL: https://www.transportation.gov/individuals/aviation-consumer-protection/refunds
+CAPTURED_ON: 2026-02-12
+AUTHORITY: REGULATOR
+DOMAIN: REFUND
+
+SECTION: Refund Entitlement — Cancellation
+If an airline cancels a flight, a consumer is entitled to a refund of the ticket price to the original form of payment if the consumer chooses not to travel or accept alternative compensation (vouchers, credits, etc.).
+
+SECTION: Refund Entitlement — Significant Delay or Change
+A consumer is entitled to a refund if the airline significantly delays a flight or significantly changes a flight and the consumer chooses not to travel or accept travel credits, vouchers, or other compensation.
+
+SECTION: Definition of Significant Change or Delay
+Significant change or delay includes:
+- Scheduled departure 3+ hours earlier (domestic) or 6+ hours earlier (international).
+- Scheduled arrival 3+ hours later (domestic) or 6+ hours later (international).
+- Change in origin or destination airports.
+- Additional connection points added beyond the original itinerary.
+- Involuntary downgrade to a lower class of service.
+- Change in connecting airports for passengers with a disability.
+- Change in aircraft removing accessibility features required by a passenger with a disability.
+
+SECTION: Downgrade Refund Rules
+A consumer involuntarily downgraded to a lower class of service is entitled to a refund if they choose not to travel or accept compensation. If the downgraded consumer continues travel, the airline must refund the difference between the original and downgraded fare.
+
+SECTION: Fully Refundable Tickets
+Consumers who purchased fully refundable tickets are entitled to a refund when they do not use the ticket, regardless of delay or cancellation.
+
+SECTION: Notification Requirement
+Airlines are required to notify passengers of cancellations, significant delays, and the right to receive a refund. Notification must be provided via the passenger’s chosen contact method (email, text, mobile app push).
+
+SECTION: Non-Refundable Situations
+A consumer is not entitled to a refund when:
+- The consumer chooses to travel on a significantly delayed or changed flight.
+- The consumer purchased a non-refundable ticket and the flight operates as scheduled.
+- The consumer traveled but experienced unsatisfactory service (this does not entitle a refund).
+
+SECTION: Ancillary Services — Refund of Fees
+Consumers are entitled to refunds of fees for ancillary services (e.g., baggage, seat selection, Wi-Fi) if the service was unavailable through no fault of the consumer (e.g., broken Wi-Fi, airline cancellation).
+
+SECTION: Baggage Fee Refund — Lost or Significantly Delayed
+Consumers who paid baggage fees are entitled to a refund if the checked baggage is declared lost or is significantly delayed (see baggage policy file for definitions). Airlines are not required to define “lost” uniformly; many declare a bag lost after 5–14 days, but this varies.
+
+SECTION: Automatic Refund After Offer of Alternatives
+If an airline offers alternative transportation (rebooking) after cancellation or significant change, and the consumer:
+- rejects the offer,
+- does not respond,
+- or does not travel on the alternative,
+then the refund must be processed automatically without requiring a separate consumer request.
+
+SECTION: Refund Timing Requirements
+Refunds must be issued within:
+- 7 business days if paid by credit card.
+- 20 calendar days if paid by cash or check.
+
+SECTION: 24-Hour Purchase/Reservation Right
+If a ticket is purchased or reserved at least 7 days before scheduled departure, airlines must:
+- Allow cancellation for a full refund within 24 hours, or
+- Allow a hold at quoted price without payment and permit cancellation within 24 hours without penalty.
+This rule does not apply to tickets purchased through third-party agents unless those agents elect similar procedures.
+
+SECTION: Merchant of Record Responsibility
+Ticket agents (travel agents or online travel agencies) that are the merchant of record on the financial statement are responsible for issuing refunds when required by DOT rules. If a third party was the merchant of record, refunds for DOT-mandated events must still be provided according to the rule, but consumers must know whom to contact.
+
+END OF POLICY

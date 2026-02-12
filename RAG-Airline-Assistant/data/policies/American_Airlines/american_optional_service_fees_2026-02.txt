@@ -1,0 +1,21 @@
+SOURCE: American Airlines
+URL: https://www.aa.com/i18n/customer-service/support/optional-service-fees.jsp
+CAPTURED_ON: 2026-02-12
+AUTHORITY: AIRLINE
+DOMAIN: BAGGAGE_FEES
+
+SECTION: Overview of Fees
+American Airlines charges fees for optional services and checked bags on a per-person basis, per direction, even when upgraded or holding elite status. All bag fees are non-refundable when paid at the airport. If you believe you were incorrectly charged, contact customer service or file a claim within 45 days. :contentReference[oaicite:0]{index=0}
+
+SECTION: Fee Structure
+Fees vary by:
+- Fare type
+- Travel region
+- Timing of payment (online vs airport)
+- Passenger’s elite status or card benefits
+Different fees may apply for oversize, overweight, or additional bags. :contentReference[oaicite:1]{index=1}
+
+SECTION: Refund Claims
+Passengers may request refund claims or support for optional service fees through American’s support channels if charged incorrectly. Fee disputes generally require contacting customer support or filing a form. :contentReference[oaicite:2]{index=2}
+
+END OF POLICY

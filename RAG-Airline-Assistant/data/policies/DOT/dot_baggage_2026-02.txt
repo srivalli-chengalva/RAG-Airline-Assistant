@@ -1,0 +1,34 @@
+SOURCE: U.S. Department of Transportation
+URL: https://www.transportation.gov/lost-delayed-or-damaged-baggage
+CAPTURED_ON: 2026-02-12
+AUTHORITY: REGULATOR
+DOMAIN: BAGGAGE
+
+SECTION: General Airline Liability
+Under U.S. DOT and international treaties, airlines must compensate passengers if checked bags are lost, delayed, or damaged during transportation when the bag is under airline control. Compensation is subject to liability limits and exclusions for improper packing or pre-existing damage. :contentReference[oaicite:0]{index=0}
+
+SECTION: Damaged Baggage
+Airlines are responsible for repairing or reimbursing damaged baggage and/or contents when damage occurs while the bag is under airline control. Exclusions may apply for fragile items, electronics, and other valuables per contract of carriage. :contentReference[oaicite:1]{index=1}
+
+SECTION: Lost Baggage
+If a checked bag does not arrive, airlines are responsible for locating it and may reimburse passengers when the bag is declared lost, often after a specified number of days (varies by carrier). :contentReference[oaicite:2]{index=2}
+
+SECTION: Delayed Baggage
+When baggage is delayed, airlines must work to locate and deliver the bag. Reasonable expenses incurred due to the delay (e.g., essentials purchased while waiting) may be reimbursed per airline procedures. :contentReference[oaicite:3]{index=3}
+
+SECTION: Baggage Fee Refunds
+Airlines may refund checked baggage fees when bags are significantly delayed or lost, in line with DOT regulations. Refer to regulatory text for refund definitions and procedures. :contentReference[oaicite:4]{index=4}
+
+SECTION: Regulatory Refund Rule (14 CFR 260.5)
+A carrier must provide prompt refunds of baggage fees when:
+- A bag is lost or significantly delayed as defined in regulation
+- A mishandled baggage report (MBR) is filed
+- Notification procedures between carriers are satisfied  
+Refunds must be at least the amount paid for the baggage fee, including in subscription or multiple-bag fee structures. :contentReference[oaicite:5]{index=5}
+
+SECTION: Exemptions
+Refund obligations do not apply when:
+- The passenger fails to pick up and recheck a bag at an international entry point
+- A passenger voluntarily separates from the bag
+- Delay circumstances fall under specific regulatory exemptions
+Airlines must not require passengers to waive refund rights for lost or delayed baggage. :contentReference[oaicite:6]{index=6}

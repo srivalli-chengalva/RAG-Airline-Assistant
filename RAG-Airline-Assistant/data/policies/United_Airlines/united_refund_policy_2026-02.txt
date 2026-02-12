@@ -1,0 +1,27 @@
+SOURCE: United Airlines
+URL: https://www.united.com/en/us/fly/travel/refund-policy.html
+CAPTURED_ON: 2026-02-12
+AUTHORITY: AIRLINE
+DOMAIN: REFUND
+
+SECTION: Refund Eligibility
+Passengers are eligible for refunds if they do not travel due to:
+- Flight cancellation
+- Significant schedule change (e.g., timing changes beyond defined thresholds)
+Refunds are credited back to the original payment method. :contentReference[oaicite:12]{index=12}
+
+SECTION: Ticket Conditions
+Refund amounts vary by:
+- Fare type (refundable vs non-refundable)
+- Timing of cancellation
+- Whether within 24-hour booking window
+Refunds include eligible ticket components and applicable baggage fees, subject to policies. :contentReference[oaicite:13]{index=13}
+
+SECTION: Processing Timeline
+Credit card refunds typically process within 7 business days; other methods may take longer (e.g., up to 20 days). :contentReference[oaicite:14]{index=14}
+
+SECTION: Ancillary Refunds
+Refunds may be available for checked bags, seats, Wi-Fi, upgrades, and other fees through United’s refund request form. :contentReference[oaicite:15]{index=15}
+
+SECTION: 24-Hour Rule
+United honors a 24-hour cancellation policy allowing full refund if canceled shortly after booking, subject to conditions and ticket type. :contentReference[oaicite:16]{index=16}

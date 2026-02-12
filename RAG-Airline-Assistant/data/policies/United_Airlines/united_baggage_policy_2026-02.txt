@@ -1,0 +1,26 @@
+SOURCE: United Airlines + official baggage guidance
+URL: https://www.united.com/en/us/fly/baggage/checked-bags.html
+CAPTURED_ON: 2026-02-12
+AUTHORITY: AIRLINE
+DOMAIN: BAGGAGE
+
+SECTION: Checked Baggage Fees and Allowances
+United charges checked bag fees that vary by:
+- Fare type (Basic Economy vs Economy vs Premium)
+- Route (domestic vs international)
+- MileagePlus elite status or qualifying credit card holders may receive one or more free checked bags.
+Standard checked bag fees apply when not included on a ticket; fees are generally higher at the airport than pre-pay online. :contentReference[oaicite:8]{index=8}
+
+SECTION: Baggage Fee Refunds on Disruption
+If a passenger’s flight is canceled and baggage is subsequently not carried on a rebooking, United allows passengers to request refunds for checked bag fees. :contentReference[oaicite:9]{index=9}
+
+SECTION: Baggage Handling & General Rules
+United generally keeps checked bags on the same flight as the passenger. If baggage cannot be placed on the same aircraft, it will be sent on the next available flight. MileagePlus status, credit card benefits, and fare class affect allowances. :contentReference[oaicite:10]{index=10}
+
+SECTION: Limitations
+United imposes:
+- Weight limits (e.g., ~50 lb for economy, higher for premium cabins)
+- Size limits (linear dimensions ~62 inches for checked bags)
+- Oversize/overweight fees apply when limits are exceeded, though tools like United’s baggage fee calculator are recommended to check specific fees. :contentReference[oaicite:11]{index=11}
+
+END OF POLICY

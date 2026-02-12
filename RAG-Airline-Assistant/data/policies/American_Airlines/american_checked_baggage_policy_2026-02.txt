@@ -1,0 +1,22 @@
+SOURCE: American Airlines
+URL: https://www.aa.com/i18n/travel-info/baggage/checked-baggage-policy.jsp
+CAPTURED_ON: 2026-02-12
+AUTHORITY: AIRLINE
+DOMAIN: BAGGAGE
+
+SECTION: Fee Structure by Region
+Checked bag fees for flights as of December 1, 2025:
+- Within/Between U.S., Puerto Rico, U.S. Virgin Islands:
+  • 1st checked bag fee $40 ($35 if paid online)
+  • 2nd checked bag fee $45 ($45 if paid online)
+- Canada / Caribbean / Mexico / Central America / Guyana:
+  • Same fee structure applies
+Fees are per passenger, per direction, and separate from ticket costs. :contentReference[oaicite:4]{index=4}
+
+SECTION: Bag Allowance & Fees
+Checked baggage fees apply per bag per direction even if multiple bags are checked on a single reservation. Online pre-payment generally offers lower fees than paying at the airport. :contentReference[oaicite:5]{index=5}
+
+SECTION: Refund Right
+If American does not carry over checked bags to a new flight after a change, the fees may be refunded as travel credit or claimable through support. :contentReference[oaicite:6]{index=6}
+
+END OF POLICY

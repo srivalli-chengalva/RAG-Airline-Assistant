@@ -1,0 +1,23 @@
+SOURCE: INTERNAL SYSTEM REFERENCE
+PURPOSE: Authority and definition cross-check logic
+DOMAIN: META_POLICY
+DO_NOT_CITE: TRUE
+
+SECTION: Significant Delay Definitions
+
+DOT (Regulator Authority)
+- Domestic baggage delay: 12 hours
+- International baggage delay: 15 hours (≤12 hr flight)
+- International baggage delay: 30 hours (>12 hr flight)
+
+Delta Airlines
+- Generally follows DOT standards for baggage delay
+
+United Airlines
+- References DOT definitions and internal contract of carriage
+
+American Airlines
+- References DOT definitions for lost and significantly delayed baggage
+
+RULE: If airline policy is silent or ambiguous, DOT definition takes precedence.
+RULE: If airline policy conflicts with DOT consumer rule, surface DOT baseline.

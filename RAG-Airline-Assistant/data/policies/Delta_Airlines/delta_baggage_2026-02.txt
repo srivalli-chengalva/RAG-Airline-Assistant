@@ -1,0 +1,23 @@
+SOURCE: Delta Air Lines
+URL: https://www.delta.com/us/en/baggage/delayed-lost-damaged-baggage
+CAPTURED_ON: 2026-02-12
+AUTHORITY: AIRLINE
+DOMAIN: BAGGAGE
+
+SECTION: Damaged Baggage Claims
+Report damaged baggage at the Delta Baggage Service Office within defined time windows; reimbursement or repair options may apply. :contentReference[oaicite:21]{index=21}
+
+SECTION: Delayed Baggage Procedures
+Report delayed baggage upon arrival; if found, the bag will be delivered. Reasonable out-of-pocket expenses related to delays may be reimbursed. :contentReference[oaicite:22]{index=22}
+
+SECTION: Lost Baggage
+If baggage is not located within ~21 days, the bag is considered lost and eligible for settlement and/or reimbursement. :contentReference[oaicite:23]{index=23}
+
+SECTION: Missing/Pilfered Contents
+Passengers may file claims for missing items within specified reporting windows; receipts may be required. :contentReference[oaicite:24]{index=24}
+
+SECTION: Checked Bag Fee Refunds
+Delta refunds checked bag fees when:
+- A bag is delayed past defined thresholds (12 hours domestic, 15–30 hours international)
+- A bag is lost and eligible per DOT and airline procedures
+Exceptions apply for specified carrier-related or passenger-caused conditions. :contentReference[oaicite:25]{index=25}
