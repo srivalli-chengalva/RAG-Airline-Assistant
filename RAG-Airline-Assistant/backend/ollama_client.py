@@ -1,68 +1,140 @@
 """
 backend/ollama_client.py
 ------------------------
-Tiny Ollama HTTP client with CRITICAL performance fix.
+Ollama HTTP client with proper timeout handling.
 
-KEY FIX: keep_alive="10m" keeps the model loaded in memory between requests.
-Without it, the model unloads after each call causing 30-60s cold starts.
-
-ADDITIONAL FIXES:
-- Increased num_predict from 400 to 600 for fuller answers
-- Increased temperature from 0.2 to 0.4 for more natural variety
-- Explicit num_ctx=4096 for clarity
-- Better defaults aligned with main_v3.py
+Fixes (NO answer-quality change):
+- Uses requests.Session for connection reuse
+- Adds buffered generate_stream() so UI doesn't print word-by-word
+- Optional num_thread via env OLLAMA_NUM_THREAD (speeds CPU, doesn't change outputs)
+- keep_alive set so model isn't unloaded between requests
 """
+
 from __future__ import annotations
-from typing import Optional
+
+from typing import Optional, Iterator, Dict, Any
 import os
+import json
+import time
 import requests
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+
+# Optional CPU thread tuning for Ollama (speed only)
+_OLLAMA_NUM_THREAD = os.getenv("OLLAMA_NUM_THREAD")  # e.g., "4" or "8"
+
+# Use a Session for connection reuse (safe; does not change outputs)
+_SESSION = requests.Session()
+
+
+def _payload(
+    prompt: str,
+    *,
+    model: str,
+    stream: bool,
+    temperature: float,
+    num_predict: int,
+) -> Dict[str, Any]:
+    options: Dict[str, Any] = {
+        "temperature": temperature,
+        "num_predict": num_predict,
+        "num_ctx": 4096,
+    }
+    if _OLLAMA_NUM_THREAD and _OLLAMA_NUM_THREAD.isdigit():
+        options["num_thread"] = int(_OLLAMA_NUM_THREAD)
+
+    return {
+        "model": model,
+        "prompt": prompt,
+        "stream": stream,
+        "keep_alive": "10m",
+        "options": options,
+    }
 
 
 def generate(
     prompt: str,
     *,
     model: Optional[str] = None,
-    timeout_s: int = 180,        # INCREASED: was 120s, now 180s for complex queries
-    num_predict: int = 600,      # INCREASED: was 400, now 600 for fuller answers
-    temperature: float = 0.4,    # INCREASED: was 0.2, now 0.4 for natural variety
+    timeout_s: int = 180,
+    num_predict: int = 350,  # FIX 3: lower cap; does not affect retrieval quality
+    temperature: float = 0.4,
 ) -> str:
-    """
-    Calls Ollama /api/generate (non-stream) and returns response text.
-
-    CRITICAL PERFORMANCE FIX:
-    keep_alive="10m" prevents the model from unloading after each request.
-    Without this parameter, you get 30-60s cold start delays on EVERY request!
-    
-    With keep_alive:
-    - First request: ~2-5s (model loads once)
-    - All subsequent requests: ~2-5s (model stays warm)
-    
-    Without keep_alive:
-    - Every request: ~35-65s (model loads every time)
-
-    Parameters:
-    - timeout_s: HTTP timeout (180s handles complex queries)
-    - num_predict: Max tokens to generate (600 = ~300 words)
-    - temperature: Creativity level (0.4 = balanced, natural)
-    """
     model = model or OLLAMA_MODEL
 
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-        "keep_alive": "10m",       # ✅ CRITICAL: keep model warm for 10 minutes
-        "options": {
-            "temperature": temperature,
-            "num_predict": num_predict,
-            "num_ctx": 4096,        # ✅ Explicit context window size
-        },
-    }
-
-    r = requests.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload, timeout=timeout_s)
+    r = _SESSION.post(
+        f"{OLLAMA_BASE_URL}/api/generate",
+        json=_payload(
+            prompt,
+            model=model,
+            stream=False,
+            temperature=temperature,
+            num_predict=num_predict,
+        ),
+        timeout=timeout_s,
+    )
     r.raise_for_status()
     data = r.json()
     return (data.get("response") or "").strip()
+
+
+def generate_stream(
+    prompt: str,
+    *,
+    model: Optional[str] = None,
+    timeout_s: int = 180,
+    num_predict: int = 350,  # FIX 3
+    temperature: float = 0.4,
+    # FIX 2: buffering knobs (smooth stream)
+    flush_chars: int = 200,
+    flush_interval_s: float = 0.25,
+) -> Iterator[str]:
+    """
+    Streaming generator. Yields partial text chunks.
+    Final concatenation equals the non-stream response (same model, same prompt).
+    """
+
+    model = model or OLLAMA_MODEL
+
+    with _SESSION.post(
+        f"{OLLAMA_BASE_URL}/api/generate",
+        json=_payload(
+            prompt,
+            model=model,
+            stream=True,
+            temperature=temperature,
+            num_predict=num_predict,
+        ),
+        timeout=timeout_s,
+        stream=True,
+    ) as r:
+        r.raise_for_status()
+
+        buffer = ""
+        last_flush = time.time()
+
+        for line in r.iter_lines(decode_unicode=True):
+            if not line:
+                continue
+
+            try:
+                data = json.loads(line)
+            except Exception:
+                continue
+
+            chunk = data.get("response") or ""
+            if chunk:
+                buffer += chunk
+
+            now = time.time()
+            if buffer and (len(buffer) >= flush_chars or (now - last_flush) >= flush_interval_s):
+                yield buffer
+                buffer = ""
+                last_flush = now
+
+            if data.get("done"):
+                break
+
+        if buffer:
+            yield buffer

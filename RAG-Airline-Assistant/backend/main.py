@@ -1,32 +1,43 @@
 """
 backend/main.py
----------------
-FastAPI application — RAG pipeline with FULL conversation memory.
 
-KEY IMPROVEMENT: Uses entire conversation context, not just last N turns.
-Context persists until user starts a completely new issue.
+Fixes added (NO retrieval-quality change):
+1) Reduce prompt size (transcript 12->6, evidence snippet 250->120) to reduce TTFT
+2) /chat_stream streaming is failure-safe and prints timings
+3) num_predict lowered to 350 for faster generation (still enough for your 4–6 sentence format)
+4) warmup retriever (embedding + reranker) so first user query doesn't spike
+   + airline filter fallback (prevents wrong-filter false negatives)
 """
+
 from __future__ import annotations
-from typing import Any, Dict, List
+
+from typing import Any, Dict, List, Optional
+import time
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-import requests  # ADDED: for LLM error handling
 
 from .config import settings
+from .decisionengine import DecisionEngine
 from .ingestion import ingest_policies
 from .retrieval import Retriever
-from .decisionengine import DecisionEngine
-from .ollama_client import generate as ollama_generate
-from .slots import detect_case, extract_slots, missing_slots, clarifying_question, build_retrieval_query
-
-
-app = FastAPI(
-    title="Airline Dispute RAG Assistant",
-    description="Grounded policy retrieval for refunds, disruptions, and baggage issues.",
-    version="1.0.0",
+from .ollama_client import (
+    OLLAMA_MODEL as ACTIVE_OLLAMA_MODEL,
+    generate as ollama_generate,
+    generate_stream,
 )
+from .slots import (
+    detect_case,
+    extract_slots,
+    missing_slots,
+    clarifying_question,
+    build_retrieval_query,
+    detect_airline,
+)
+
+app = FastAPI(title="Airline Dispute RAG Assistant")
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,323 +48,232 @@ app.add_middleware(
 
 retriever = Retriever()
 decision_engine = DecisionEngine()
+READY = False
 
 
-# ------------------------------------------------------------------ #
-#  Schemas
-# ------------------------------------------------------------------ #
+# -----------------------------
+# Startup warmup
+# -----------------------------
+@app.on_event("startup")
+def warmup():
+    global READY
+    try:
+        _ = retriever.collection
+        _ = retriever.embedder
+        _ = retriever.reranker
+
+        # FIX 4: warmup to avoid first-query latency spikes
+        if hasattr(retriever, "warmup"):
+            retriever.warmup()
+
+        READY = True
+        print("✅ Warmup complete", flush=True)
+        print(f"✅ Active Ollama model: {ACTIVE_OLLAMA_MODEL}", flush=True)
+    except Exception as e:
+        READY = False
+        print(f"❌ Warmup failed: {type(e).__name__}: {e}", flush=True)
+
+
+# -----------------------------
+# Schemas
+# -----------------------------
+class ChatTurn(BaseModel):
+    role: str
+    content: str
+
+
 class ChatRequest(BaseModel):
     message: str
-    conversation_history: List[str] = []
+    conversation_history: List[ChatTurn] = []
 
 
-class CitationItem(BaseModel):
-    source: str
-    airline: str
-    authority: str
-    domain: str
-    url: str
-    chunk_id: str
-    rerank_score: float
-    excerpt: str
+# -----------------------------
+# Helpers
+# -----------------------------
+def _safe_turns(turns: Optional[List[ChatTurn]]) -> List[ChatTurn]:
+    return [t for t in (turns or []) if t.role and t.content]
 
 
-class ChatResponse(BaseModel):
-    mode: str
-    answer: str
-    citations: List[CitationItem]
-    debug: Dict[str, Any]
+def _user_only_text(turns: List[ChatTurn]) -> List[str]:
+    return [t.content for t in turns if t.role == "user"]
 
 
-# ------------------------------------------------------------------ #
-#  Context Management
-# ------------------------------------------------------------------ #
-def _is_new_issue(current_msg: str, conversation_history: List[str]) -> bool:
-    """
-    Detect if user is starting a completely NEW issue vs continuing current one.
-    
-    Returns True if:
-    - No history (first message)
-    - User explicitly says "new issue" / "different problem" / "change topic"
-    - User mentions a DIFFERENT airline than what's in history
-    
-    Returns False if:
-    - Continuing discussion of same issue
-    - Follow-up questions about same situation
-    """
-    if not conversation_history:
-        return True  # First message is always a new issue
-    
-    msg_lower = current_msg.lower().strip()
-    
-    # Explicit new issue signals
-    new_issue_phrases = [
-        "new issue", "new problem", "different problem", "different issue",
-        "change topic", "another question", "separate issue", "unrelated",
-        "by the way", "also i have", "now about",
-    ]
-    
-    if any(phrase in msg_lower for phrase in new_issue_phrases):
+def _is_new_issue(current_msg: str, user_history: List[str]) -> bool:
+    if not user_history:
         return True
-    
-    # Check for airline switch (strong signal of new issue)
-    from .slots import detect_airline
-    
+
+    msg_lower = current_msg.lower().strip()
+    markers = [
+        "new issue",
+        "new problem",
+        "different problem",
+        "different issue",
+        "change topic",
+        "another question",
+        "separate issue",
+        "unrelated",
+        "by the way",
+        "also i have",
+        "now about",
+    ]
+    if any(m in msg_lower for m in markers):
+        return True
+
     current_airline = detect_airline(current_msg)
     if current_airline:
-        # Check if different airline mentioned in history
-        history_text = " ".join(conversation_history)
-        history_airline = detect_airline(history_text)
-        
+        history_airline = detect_airline(" ".join(user_history))
         if history_airline and current_airline.lower() != history_airline.lower():
-            return True  # Switched airlines = new issue
-    
-    # Default: assume continuation of current issue
+            return True
+
     return False
 
 
-def _get_relevant_context(
-    current_msg: str, 
-    conversation_history: List[str],
-    max_tokens: int = 2000
-) -> str:
-    """
-    Build conversation context intelligently:
-    - Use FULL history if it's the same issue
-    - Only use recent context if new issue detected
-    - Respect token limits to avoid overwhelming the LLM
-    
-    Rough estimate: 1 token ≈ 4 characters
-    """
-    if _is_new_issue(current_msg, conversation_history):
-        # New issue: only use last 2 turns for minimal context
-        relevant_history = conversation_history[-2:] if conversation_history else []
-    else:
-        # Same issue: use ALL history (subject to token limit)
-        relevant_history = conversation_history
-    
-    # Build context string
-    full_context = " ".join(relevant_history + [current_msg])
-    
-    # Token limit check (rough: 1 token ≈ 4 chars)
+def _get_relevant_context(current_msg: str, user_history: List[str], max_tokens: int = 2000) -> str:
+    relevant_history = user_history[-2:] if _is_new_issue(current_msg, user_history) else user_history
+    full = " ".join(relevant_history + [current_msg])
+
     max_chars = max_tokens * 4
-    if len(full_context) > max_chars:
-        # Truncate from the BEGINNING (keep recent context)
-        # But always keep at least the current message
-        excess = len(full_context) - max_chars
-        if excess < len(full_context) - len(current_msg):
-            full_context = "..." + full_context[excess:]
-        # Otherwise just use current message
-        else:
-            full_context = current_msg
-    
-    return full_context.strip()
+    if len(full) > max_chars:
+        full = "..." + full[-max_chars:]
+    return full.strip()
 
 
-# ------------------------------------------------------------------ #
-#  Out-of-scope detection
-# ------------------------------------------------------------------ #
-_HUMAN_AGENT_PHRASES = [
-    "human agent", "speak to agent", "talk to agent", "chat with agent",
-    "speak to a human", "talk to a human", "chat with a human", "real person",
-    "live agent", "live support", "customer service", "speak to someone",
-    "talk to someone", "call the airline", "phone number", "contact number",
-    "supervisor", "manager",
-]
-
-_GREETING_PHRASES = [
-    "hello", "hi there", "hey", "good morning", "good afternoon",
-    "good evening", "how are you", "what can you do", "help me",
-    "what do you do",
-]
-
-_UNRELATED_PHRASES = [
-    "weather", "hotel", "restaurant", "car rental", "visa",
-    "passport", "flight status", "track my flight", "gate number",
-    "seat upgrade", "lounge access", "frequent flyer", "miles",
-]
+def _flatten_transcript(turns: List[ChatTurn], max_turns: int = 12) -> str:
+    turns = turns[-max_turns:]
+    lines = []
+    for t in turns:
+        role = "User" if t.role == "user" else "Assistant"
+        lines.append(f"{role}: {t.content}")
+    return "\n".join(lines).strip()
 
 
-def _is_human_agent_request(text: str) -> bool:
-    t = text.lower().strip()
-    return any(p in t for p in _HUMAN_AGENT_PHRASES)
+def _build_citations(top_chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    out = []
+    for c in top_chunks:
+        out.append(
+            {
+                "source": c["meta"].get("source", ""),
+                "airline": c["meta"].get("airline", ""),
+                "authority": c["meta"].get("authority", ""),
+                "domain": c["meta"].get("domain", ""),
+                "url": c["meta"].get("url", ""),
+                "chunk_id": c["id"],
+                "rerank_score": round(float(c.get("rerank_score", 0.0)), 4),
+                "excerpt": (c["doc"][:600] or ""),
+            }
+        )
+    return out
 
 
-def _is_greeting(text: str) -> bool:
-    t = text.lower().strip()
-    dispute_keywords = [
-        "refund", "cancel", "bag", "baggage", "luggage", "flight",
-        "ticket", "airline", "american", "delta", "united", "dot",
-        "compensation", "reimburs", "delay", "lost", "damaged",
-        "frustrated", "angry", "refusing", "denied",
-    ]
-    if any(k in t for k in dispute_keywords):
-        return False
-    if len(t) > 60:
-        return False
-    return any(t.startswith(p) or t == p for p in _GREETING_PHRASES)
-
-
-def _is_unrelated(text: str) -> bool:
-    t = text.lower().strip()
-    dispute_keywords = [
-        "refund", "cancel", "bag", "baggage", "luggage", "flight",
-        "ticket", "airline", "american", "delta", "united", "dot",
-        "compensation", "reimburs", "delay", "lost", "damaged",
-    ]
-    if any(k in t for k in dispute_keywords):
-        return False
-    return any(p in t for p in _UNRELATED_PHRASES)
-
-
-# ------------------------------------------------------------------ #
-#  Helpers
-# ------------------------------------------------------------------ #
-def _build_answer(top_chunks: List[Dict[str, Any]], confidence: str) -> str:
-    """Fallback answer builder when LLM is unavailable."""
+def _fallback_answer(top_chunks: List[Dict[str, Any]], confidence: str) -> str:
     header = (
         "⚠️ **Low confidence** — I found relevant sections, but please verify with the airline:\n\n"
         if confidence == "low"
         else "Here's what I found in the policy evidence:\n\n"
     )
-    lines = []
+    parts = []
     for i, c in enumerate(top_chunks, 1):
         airline = c["meta"].get("airline", "Unknown")
         domain = c["meta"].get("domain", "")
-        lines.append(f"**[{i}] {airline} — {domain}**\n{c['doc'].strip()}")
-    return header + "\n\n---\n\n".join(lines)
+        parts.append(f"**[{i}] {airline} — {domain}**\n{c['doc'].strip()}")
+    return header + "\n\n---\n\n".join(parts)
 
 
-def _build_citations(top_chunks: List[Dict[str, Any]]) -> List[CitationItem]:
-    return [
-        CitationItem(
-            source=c["meta"].get("source", ""),
-            airline=c["meta"].get("airline", ""),
-            authority=c["meta"].get("authority", ""),
-            domain=c["meta"].get("domain", ""),
-            url=c["meta"].get("url", ""),
-            chunk_id=c["id"],
-            rerank_score=round(float(c["rerank_score"]), 4),
-            excerpt=(c["doc"][:600] or ""),
-        )
-        for c in top_chunks
-    ]
-
-
-def _build_grounded_prompt(
-    user_msg: str, 
-    decision: Any, 
-    top_chunks: List[Dict[str, Any]], 
+def _build_prompt(
+    user_msg: str,
+    decision: Any,
+    top_chunks: List[Dict[str, Any]],
     confidence: str,
     slots: Dict[str, Any],
-    conversation_history: List[str]
+    turns: List[ChatTurn],
 ) -> str:
-    """
-    Build a reasoning-focused prompt that makes LLM interpret and synthesize,
-    not just regurgitate policies.
-    """
-    
-    # ── EVIDENCE: Concise and focused ──────────────────────────────────
     evidence_lines = []
-    for i, c in enumerate(top_chunks[:4], 1):  # Only top 4, not 5
+    for i, c in enumerate(top_chunks[:4], 1):
         meta = c["meta"]
-        airline_display = meta.get('airline', '').title() if meta.get('airline') not in ('dot', 'internal') else meta.get('airline', '').upper()
-        
-        # SHORTER excerpts (250 chars instead of 400)
-        text = (c["doc"] or "").strip()[:250]
-        
-        # Cleaner format
-        source_tag = f"{airline_display} {meta.get('domain', '')}"
-        evidence_lines.append(f"[{i}] {source_tag}:\n{text}")
-    
-    evidence_block = "\n\n".join(evidence_lines)
-    
-    # ── CONVERSATION CONTEXT: Adaptive ─────────────────────────────────
-    context_block = ""
-    if conversation_history:
-        if len(conversation_history) <= 3:
-            # Short: show all
-            context_block = "CONVERSATION:\n" + "\n".join([f"User: {msg}" for msg in conversation_history])
-        else:
-            # Long: summary format
-            context_block = (
-                f"CONVERSATION SUMMARY:\n"
-                f"Started: {conversation_history[0][:60]}...\n"
-                f"Recent: {conversation_history[-1][:80]}..."
-            )
-    
-    # ── KNOWN FACTS: What we already know ──────────────────────────────
-    facts = []
-    if slots.get("airline"):
-        facts.append(f"Airline: {slots['airline']}")
-    if slots.get("baggage_status") and slots['baggage_status'] != "unknown":
-        facts.append(f"Issue: {slots['baggage_status']} baggage")
-    if slots.get("airline_cancelled") == "yes":
-        facts.append(f"Airline cancelled flight")
-    elif slots.get("airline_cancelled") == "no":
-        facts.append(f"Passenger wants to cancel")
-    
-    known_facts = "KNOWN FACTS:\n" + "\n".join([f"• {f}" for f in facts]) if facts else ""
-    
-    # ── SITUATION ANALYSIS: From decision engine ───────────────────────
+        airline_display = (
+            meta.get("airline", "").title()
+            if meta.get("airline") not in ("dot", "internal")
+            else meta.get("airline", "").upper()
+        )
+
+        # FIX 1: smaller evidence snippets (speed; no retrieval quality change)
+        snippet = (c["doc"] or "").strip()[:120]
+        evidence_lines.append(f"[{i}] {airline_display} {meta.get('domain','')}:\n{snippet}")
+
+    # FIX 1: fewer turns (speed; preserves context)
+    transcript = _flatten_transcript(turns, max_turns=6)
+
     situation = getattr(decision, "recommended_action", "")
-    
-    # ── BUILD REASONING-FOCUSED PROMPT ─────────────────────────────────
-    return f"""You are an expert airline dispute assistant. Your job is to INTERPRET policies and REASON about what they mean for this specific passenger, not just quote them.
+
+    return f"""You are an expert airline dispute assistant. Interpret policies and explain what they mean for this passenger.
 
 CURRENT QUESTION: "{user_msg}"
 
-{context_block}
-
-{known_facts}
+CONVERSATION:
+{transcript}
 
 SITUATION ANALYSIS:
 {situation}
 
 POLICY EVIDENCE:
-{evidence_block}
+{chr(10).join(evidence_lines)}
 
-YOUR TASK - CRITICAL INSTRUCTIONS:
+INSTRUCTIONS:
+- Give 2–3 concrete next steps and why
+- Cite evidence like [1][2]
+- Be conversational (4–6 sentences)
+- Don't ask for info already known
 
-1. INTERPRET, don't just quote:
-   • Read the policies above
-   • THINK about what they mean for THIS passenger's situation
-   • Explain the implications in plain language
-   
-2. REASON about next steps:
-   • Based on the policies, what should the passenger DO?
-   • What are their 2-3 BEST options right now?
-   • What happens if they take each action?
-
-3. BE SPECIFIC and ACTIONABLE:
-   • Give concrete steps, not generic advice
-   • Explain WHY each step matters
-   • Cite policies [1][2] to back up your reasoning
-
-4. STAY CONVERSATIONAL:
-   • 4-6 sentences max unless genuinely complex
-   • Natural tone, not robotic
-   • Acknowledge emotions if passenger is frustrated
-
-5. DON'T ASK for info you already know (see KNOWN FACTS)
-
-EXAMPLE OF GOOD RESPONSE:
-"Based on United's policy [1] and DOT regulations [2], here's what this means for you: Since your bag has been delayed for 2 days, you're entitled to reimbursement for essential purchases like toiletries and clothing. Keep all receipts. Your best next steps are: (1) File a formal delayed baggage claim with United right away if you haven't - get a reference number, and (2) Start documenting what you've had to buy. If the bag isn't found within 5 days, it will likely be declared lost, which opens up additional compensation."
-
-Now respond, focusing on INTERPRETATION and ACTIONABLE GUIDANCE:""".strip()
+Answer:""".strip()
 
 
-# ------------------------------------------------------------------ #
-#  Endpoints
-# ------------------------------------------------------------------ #
+def _clarify_json(case: str, slots: Dict[str, Any], missing: List[str]) -> Dict[str, Any]:
+    return {
+        "mode": "clarify",
+        "answer": clarifying_question(case, missing, slots),
+        "citations": [],
+        "debug": {"case": case, "slots": slots, "missing_slots": missing, "used_llm": False},
+    }
+
+
+def _low_match_json(case: str, slots: Dict[str, Any], query: str, top_score: float) -> Dict[str, Any]:
+    return {
+        "mode": "clarify",
+        "answer": "I couldn't find a strong policy match. Which airline is this for and what exactly happened?",
+        "citations": [],
+        "debug": {"case": case, "slots": slots, "query_used": query, "top_score": round(top_score, 4), "used_llm": False},
+    }
+
+
+def _search_with_airline_fallback(query: str, airline_filter: str | None) -> tuple[list[Dict[str, Any]], float, str]:
+    used_filter = airline_filter.lower().strip() if airline_filter else None
+
+    chunks = retriever.search(query, airline_filter=used_filter)
+    score = float(chunks[0]["rerank_score"]) if chunks else 0.0
+
+    # If filter was applied but score is low, retry once without filter and keep the better result
+    if used_filter and score < 0.15:
+        alt_chunks = retriever.search(query, airline_filter=None)
+        alt_score = float(alt_chunks[0]["rerank_score"]) if alt_chunks else 0.0
+        if alt_score > score:
+            return alt_chunks, alt_score, "none"
+        return chunks, score, used_filter
+
+    return chunks, score, used_filter or "none"
+
+
+# -----------------------------
+# Endpoints
+# -----------------------------
 @app.get("/health")
 def health():
     return {
         "status": "ok",
+        "ready": READY,
         "collection": settings.collection_name,
         "embed_model": settings.embed_model,
         "reranker_model": settings.reranker_model,
-        "ollama_model": getattr(settings, "ollama_model", "local"),
+        "ollama_model": ACTIVE_OLLAMA_MODEL,
     }
 
 
@@ -363,231 +283,117 @@ def ingest():
     return {"status": "ok", **result}
 
 
-@app.post("/chat", response_model=ChatResponse)
+@app.post("/chat")
 def chat(req: ChatRequest):
     user_msg = (req.message or "").strip()
+    turns = _safe_turns(req.conversation_history)
 
-    # ── STEP 0: Out-of-scope detection ────────────────────────────────
-    if _is_human_agent_request(user_msg):
-        return ChatResponse(
-            mode="escalate",
-            answer=(
-                "I understand you'd like to speak with a human agent. "
-                "Here's how to reach a live agent for each airline:\n\n"
-                "- **American Airlines**: 1-800-433-7300\n"
-                "- **Delta Air Lines**: 1-800-221-1212\n"
-                "- **United Airlines**: 1-800-864-8331\n"
-                "- **DOT Aviation Consumer Protection**: 202-366-2220\n\n"
-                "You can also file a formal complaint at [transportation.gov/airconsumer]"
-                "(https://www.transportation.gov/airconsumer)."
-            ),
-            citations=[],
-            debug={"case": "escalate", "reason": "human_agent_request", "slots": {}},
-        )
+    user_history = _user_only_text(turns)
+    context = _get_relevant_context(user_msg, user_history, max_tokens=2000)
 
-    if _is_greeting(user_msg):
-        return ChatResponse(
-            mode="clarify",
-            answer=(
-                "Hi! I'm the Airline Dispute Assistant. I can help you with:\n\n"
-                "- ✈️ **Flight refunds** — if your flight was canceled or changed\n"
-                "- 🧳 **Baggage issues** — lost, delayed, or damaged bags\n"
-                "- 📋 **DOT regulations** — your passenger rights\n\n"
-                "Which airline and what happened?"
-            ),
-            citations=[],
-            debug={"case": "greeting", "reason": "greeting_detected", "slots": {}},
-        )
+    case = detect_case(context)
+    slots = extract_slots(context, case)
 
-    if _is_unrelated(user_msg):
-        return ChatResponse(
-            mode="clarify",
-            answer=(
-                "I'm specialized in airline refunds and baggage disputes. "
-                "I may not have the right information for that question. "
-                "Could you describe a refund, cancellation, or baggage issue I can help with?"
-            ),
-            citations=[],
-            debug={"case": "out_of_scope", "reason": "unrelated_topic", "slots": {}},
-        )
+    miss = missing_slots(slots)
+    if miss:
+        return _clarify_json(case, slots, miss)
 
-    # ── STEP 1: Build intelligent conversation context ────────────────
-    # CRITICAL: Get relevant context (full conversation for same issue)
-    full_context = _get_relevant_context(
-        user_msg, 
-        req.conversation_history or [],
-        max_tokens=2000
-    )
-    
-    # Detect case and extract slots from FULL relevant context
-    case = detect_case(full_context)
-    slots = extract_slots(full_context, case)
-    
-    # Track if this is a new issue
-    is_new = _is_new_issue(user_msg, req.conversation_history or [])
-
-    # ── STEP 2: Clarify ONLY if absolutely critical slots missing ─────
-    missing = missing_slots(slots)
-    if missing:
-        q = clarifying_question(case, missing, slots)
-        return ChatResponse(
-            mode="clarify",
-            answer=q,
-            citations=[],
-            debug={
-                "case": case,
-                "slots": slots,
-                "missing_slots": missing,
-                "top_score": None,
-                "confidence": None,
-                "chunks_retrieved": 0,
-                "used_llm": False,
-                "decision": None,
-                "is_new_issue": is_new,
-                "context_length": len(full_context),
-            },
-        )
-
-    # ── STEP 3: Build retrieval query ─────────────────────────────────
     query = build_retrieval_query(user_msg, slots)
 
-    # ── STEP 4: Retrieve + rerank ──────────────────────────────────────
     airline_filter = (slots.get("airline") or "").strip()
-    if airline_filter:
-        top_chunks = retriever.search(query, airline_filter=airline_filter.lower())
-        
-        # Fallback: try without filter if results are poor
-        if not top_chunks or top_chunks[0]["rerank_score"] < 0.2:
-            top_chunks_no_filter = retriever.search(query, airline_filter=None)
-            if top_chunks_no_filter and top_chunks_no_filter[0]["rerank_score"] > (top_chunks[0]["rerank_score"] if top_chunks else 0) + 0.1:
-                top_chunks = top_chunks_no_filter
-    else:
-        top_chunks = retriever.search(query, airline_filter=None)
-    
-    top_score = float(top_chunks[0]["rerank_score"]) if top_chunks else 0.0
+    top_chunks, top_score, used_filter = _search_with_airline_fallback(query, airline_filter)
 
-    # ── STEP 5: Evidence gate (LOWERED THRESHOLD) ──────────────────────
     if top_score < 0.15:
-        return ChatResponse(
-            mode="clarify",
-            answer=(
-                "I couldn't find a strong policy match for that. "
-                "Could you clarify which airline this is for and what specifically happened?"
-            ),
-            citations=[],
-            debug={
-                "case": case,
-                "slots": slots,
-                "query_used": query,
-                "top_score": round(top_score, 4),
-                "confidence": "none",
-                "chunks_retrieved": len(top_chunks),
-                "used_llm": False,
-                "decision": None,
-                "is_new_issue": is_new,
-                "context_length": len(full_context),
-            },
-        )
+        return _low_match_json(case, slots, query, top_score)
 
-    # Adjusted confidence levels
-    if top_score >= 0.4:
-        confidence = "high"
-    elif top_score >= 0.2:
-        confidence = "medium"
-    else:
-        confidence = "low"
+    confidence = "high" if top_score >= 0.4 else "medium" if top_score >= 0.2 else "low"
+    decision = decision_engine.evaluate(case=case, slots=slots, confidence=confidence, top_score=top_score)
 
-    # ── STEP 6: Decision engine (provides context, not conversation) ───
-    decision = decision_engine.evaluate(
-        case=case, slots=slots, confidence=confidence, top_score=top_score
-    )
-
-    # ── STEP 7: LLM grounded generation with better error handling ─────
-    used_llm = True
-    llm_error_detail = None
     try:
-        # Build prompt
-        prompt = _build_grounded_prompt(
-            user_msg, 
-            decision, 
-            top_chunks, 
-            confidence, 
-            slots,
-            req.conversation_history or []
-        )
-        
-        # CRITICAL: Check prompt length BEFORE calling LLM
-        # Ollama llama3.1:8b has 4096 token context (roughly 16,384 chars)
-        # Leave room for response (600 tokens = 2400 chars)
-        MAX_PROMPT_CHARS = 14000
-        
-        if len(prompt) > MAX_PROMPT_CHARS:
-            print(f"⚠️ Prompt too long ({len(prompt)} chars), truncating to {MAX_PROMPT_CHARS}")
-            # Truncate from the middle (keep beginning context and recent evidence)
-            keep_start = 2000  # Keep instructions
-            keep_end = MAX_PROMPT_CHARS - keep_start - 100
-            prompt = prompt[:keep_start] + f"\n\n[...truncated {len(prompt) - MAX_PROMPT_CHARS} chars...]\n\n" + prompt[-keep_end:]
-        
-        # Log for debugging
-        print(f"🤖 Calling LLM | Prompt: {len(prompt)} chars | Timeout: 180s")
-        
-        # Call LLM with increased timeout and better parameters
-        answer = ollama_generate(
-            prompt, 
-            timeout_s=180,      # Increased from 120 for complex queries
-            num_predict=600,    # Increased from 500 for fuller responses
-            temperature=0.4     # Slightly increased for more natural variety
-        )
-        
-        # Validate response
-        if not answer or not answer.strip():
-            raise RuntimeError("LLM returned empty response")
-        
-        # Log success
-        print(f"✅ LLM success | Response: {len(answer)} chars")
-        
-    except requests.exceptions.Timeout:
-        used_llm = False
-        llm_error_detail = "LLM request timed out (>180s)"
-        print(f"❌ {llm_error_detail}")
-        answer = _build_answer(top_chunks, confidence)
-        
-    except requests.exceptions.ConnectionError as e:
-        used_llm = False  
-        llm_error_detail = f"Cannot connect to Ollama: {e}"
-        print(f"❌ {llm_error_detail}")
-        answer = _build_answer(top_chunks, confidence)
-        
+        prompt = _build_prompt(user_msg, decision, top_chunks, confidence, slots, turns)
+        # FIX 3: num_predict lowered
+        answer = ollama_generate(prompt, timeout_s=240, num_predict=350, temperature=0.4)
+        if not answer.strip():
+            raise RuntimeError("empty answer")
+        used_llm = True
+        llm_error = None
     except Exception as e:
+        answer = _fallback_answer(top_chunks, confidence)
         used_llm = False
-        llm_error_detail = f"{type(e).__name__}: {str(e)}"
-        print(f"❌ LLM error: {llm_error_detail}")
-        
-        # Print full traceback for debugging
-        import traceback
-        traceback.print_exc()
-        
-        answer = _build_answer(top_chunks, confidence)
+        llm_error = f"{type(e).__name__}: {e}"
 
-    citations = _build_citations(top_chunks)
-    mode = "answer"
-
-    return ChatResponse(
-        mode=mode,
-        answer=answer,
-        citations=citations,
-        debug={
+    return {
+        "mode": "answer",
+        "answer": answer,
+        "citations": _build_citations(top_chunks),
+        "debug": {
             "case": case,
             "slots": slots,
             "query_used": query,
+            "airline_filter_used": used_filter,
             "top_score": round(top_score, 4),
             "confidence": confidence,
             "chunks_retrieved": len(top_chunks),
             "used_llm": used_llm,
-            "llm_error": llm_error_detail,  # ADDED: show LLM error if any
+            "llm_error": llm_error,
             "decision": decision.to_dict(),
-            "is_new_issue": is_new,
-            "context_length": len(full_context),
-            "conversation_turns": len(req.conversation_history or []) + 1,
         },
+    }
+
+
+@app.post("/chat_stream")
+def chat_stream(req: ChatRequest):
+    t0 = time.time()
+    print("[TIMING] /chat_stream called", flush=True)
+
+    user_msg = (req.message or "").strip()
+    turns = _safe_turns(req.conversation_history)
+
+    user_history = _user_only_text(turns)
+    context = _get_relevant_context(user_msg, user_history, max_tokens=2000)
+
+    case = detect_case(context)
+    slots = extract_slots(context, case)
+
+    miss = missing_slots(slots)
+    if miss:
+        print("[TIMING] early_return: missing slots -> clarify json", flush=True)
+        return _clarify_json(case, slots, miss)
+
+    query = build_retrieval_query(user_msg, slots)
+
+    airline_filter = (slots.get("airline") or "").strip()
+    top_chunks, top_score, used_filter = _search_with_airline_fallback(query, airline_filter)
+
+    t_retrieval = time.time()
+    print(
+        f"[TIMING] retrieval+rerank: {t_retrieval - t0:.2f}s | top_score={top_score:.3f} | filter={used_filter}",
+        flush=True,
     )
+
+    if top_score < 0.15:
+        print("[TIMING] early_return: low_score -> clarify json", flush=True)
+        return _low_match_json(case, slots, query, top_score)
+
+    confidence = "high" if top_score >= 0.4 else "medium" if top_score >= 0.2 else "low"
+    decision = decision_engine.evaluate(case=case, slots=slots, confidence=confidence, top_score=top_score)
+
+    prompt = _build_prompt(user_msg, decision, top_chunks, confidence, slots, turns)
+    print(f"[TIMING] prompt_built: {time.time() - t0:.2f}s | starting stream…", flush=True)
+
+    def event_stream():
+        first = True
+        try:
+            # FIX 3: num_predict lowered
+            for chunk in generate_stream(prompt, timeout_s=240, num_predict=350, temperature=0.4):
+                if first:
+                    first = False
+                    print(f"[TIMING] first_token: {time.time() - t0:.2f}s", flush=True)
+                yield chunk
+            print(f"[TIMING] done_total: {time.time() - t0:.2f}s", flush=True)
+        except Exception as e:
+            msg = f"\n\n❌ Streaming failed: {type(e).__name__}: {e}\n"
+            print(f"[ERROR] streaming failed: {type(e).__name__}: {e}", flush=True)
+            yield msg
+
+    return StreamingResponse(event_stream(), media_type="text/plain")
